@@ -114,6 +114,10 @@ var (
 	tlsKeyFile = kingpin.Flag(
 		"web.tls.key_file", "Path to a file that contains the TLS private key (PEM format) ($FIREHOSE_EXPORTER_WEB_TLS_KEYFILE)",
 	).Envar("FIREHOSE_EXPORTER_WEB_TLS_KEYFILE").ExistingFile()
+
+	exitOnFirehoseClose = kingpin.Flag(
+		"exitOnFirehoseClose", "Whether to exit the process if the Firehose becomes disconnected",
+	).Envar("FIREHOSE_EXIT_ON_CLOSE").Default("false").Bool()
 )
 
 func init() {
@@ -276,6 +280,7 @@ func startLegacyFirehose(metricsStore *metrics.Store) {
 		*dopplerMaxRetryCount,
 		authTokenRefresher,
 		metricsStore,
+		*exitOnFirehoseClose,
 	)
 	go func() {
 		nozzle.Start()

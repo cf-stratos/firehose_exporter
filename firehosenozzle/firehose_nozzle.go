@@ -2,6 +2,7 @@ package firehosenozzle
 
 import (
 	"crypto/tls"
+	"os"
 	"time"
 
 	"github.com/cloudfoundry/noaa/consumer"
@@ -14,18 +15,19 @@ import (
 )
 
 type FirehoseNozzle struct {
-	url                string
-	skipSSLValidation  bool
-	subscriptionID     string
-	idleTimeout        time.Duration
-	minRetryDelay      time.Duration
-	maxRetryDelay      time.Duration
-	maxRetryCount      int
-	authTokenRefresher consumer.TokenRefresher
-	metricsStore       *metrics.Store
-	errs               <-chan error
-	messages           <-chan *events.Envelope
-	consumer           *consumer.Consumer
+	url                 string
+	skipSSLValidation   bool
+	subscriptionID      string
+	idleTimeout         time.Duration
+	minRetryDelay       time.Duration
+	maxRetryDelay       time.Duration
+	maxRetryCount       int
+	authTokenRefresher  consumer.TokenRefresher
+	metricsStore        *metrics.Store
+	errs                <-chan error
+	messages            <-chan *events.Envelope
+	consumer            *consumer.Consumer
+	exitOnFirehoseClose bool
 }
 
 func New(
@@ -38,19 +40,21 @@ func New(
 	maxRetryCount int,
 	authTokenRefresher consumer.TokenRefresher,
 	metricsStore *metrics.Store,
+	exitOnFirehoseClose bool,
 ) *FirehoseNozzle {
 	return &FirehoseNozzle{
-		url:                url,
-		skipSSLValidation:  skipSSLValidation,
-		subscriptionID:     subscriptionID,
-		idleTimeout:        idleTimeout,
-		minRetryDelay:      minRetryDelay,
-		maxRetryDelay:      maxRetryDelay,
-		maxRetryCount:      maxRetryCount,
-		authTokenRefresher: authTokenRefresher,
-		metricsStore:       metricsStore,
-		errs:               make(<-chan error),
-		messages:           make(<-chan *events.Envelope),
+		url:                 url,
+		skipSSLValidation:   skipSSLValidation,
+		subscriptionID:      subscriptionID,
+		idleTimeout:         idleTimeout,
+		minRetryDelay:       minRetryDelay,
+		maxRetryDelay:       maxRetryDelay,
+		maxRetryCount:       maxRetryCount,
+		authTokenRefresher:  authTokenRefresher,
+		metricsStore:        metricsStore,
+		errs:                make(<-chan error),
+		messages:            make(<-chan *events.Envelope),
+		exitOnFirehoseClose: exitOnFirehoseClose,
 	}
 }
 
@@ -128,6 +132,14 @@ func (n *FirehoseNozzle) handleError(err error) {
 			case websocket.ClosePolicyViolation:
 				log.Errorf("Nozzle couldn't keep up. Please try scaling up the Nozzle.")
 				n.metricsStore.AlertSlowConsumerError()
+
+				// I think at this point, we're stuck - the websocket got closed on us and we don't try and reconnect
+				// For envrionments like Kubernetes, allow the user to configure hat we should exit, so the firehose can get started again
+
+				if n.exitOnFirehoseClose {
+					log.Error("Firehose stuck: Exit on close... exiting")
+					os.Exit(1)
+				}
 			}
 		}
 	}
